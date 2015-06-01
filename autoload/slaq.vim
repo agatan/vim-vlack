@@ -7,9 +7,8 @@ if !exists('g:slaq_token')
     throw 'Define your token'
 endif
 
-if !exists('s:initialized')
-    let s:initialized = 1
-
+if !exists('g:slaq_initialized')
+    let g:slaq_initialized = 1
     let s:V = vital#of('slaq')
     let s:H = s:V.import('Web.HTTP')
     let s:J = s:V.import('Web.JSON')
@@ -32,10 +31,9 @@ if !exists('s:initialized')
     endfor
 
     if !exists('g:slaq_name_width')
-        let g:slaq_name_width = 20
+        let g:slaq_name_width = 10
     endif
 endif
-
 
 function! slaq#get(api_name, arg) abort
     let a:arg['token'] = g:slaq_token
@@ -57,30 +55,29 @@ function! slaq#channel_history(channel) abort
 endfunction
 
 function! s:to_show_history(history) abort
-    " Null文字を改行に変換するためいったんリストに
-    let histories = split(a:history['text'], "\0")
-    let len = strlen(a:history['user']['name']) + 2
-    let ret = []
+    let len = strlen(a:history['user']['name'])
 
-    " 一行目用のスペースを作る
     let spaces = ''
     let i = 0
     while i < g:slaq_name_width - len
         let spaces = spaces . ' '
         let i += 1
     endwhile
-    call add(ret, '[' . a:history['user']['name'] . ']' . spaces . '| ' . histories[0])
-
-    while strlen(spaces) < g:slaq_name_width
-        let spaces .= ' '
-    endwhile
-    for h in histories[1:]
-        call add(ret, spaces . '| ' . h)
-    endfor
-    return join(ret, "")
+    return a:history['user']['name'] . spaces . '| ' . s:replace_name(a:history['text'])
 endfunction
 
-function! slaq#show_history(channel) abort
+function! s:replace_name(message) abort
+    let name = matchlist(a:message, '^<@\(.\+\)>', 0)
+    if empty(name)
+        return a:message
+    endif
+    if !has_key(s:users, name[1])
+        return a:message
+    endif
+    return substitute(a:message, '^<@.\+>', '@' . s:users[name[1]]['name'], '')
+endfunction
+
+function! slaq#open_channel(channel) abort
     let history = slaq#channel_history(a:channel)
     let bufname = '==Slack: channel(' . a:channel . ')=='
     edit `=bufname`
