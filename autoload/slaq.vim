@@ -81,6 +81,12 @@ function! slaq#open_channel(channel) abort
     let history = slaq#channel_history(a:channel)
     let bufname = '==Slack: channel(' . a:channel . ')=='
     edit `=bufname`
+    setlocal buftype=nowrite
+    setlocal noswapfile
+    setlocal bufhidden=wipe
+    setlocal nonumber
+    setlocal readonly
+    setlocal nomodifiable
     silent %d _
     let display_list = map(history, 's:to_show_history(v:val)')
     call setline(1, display_list)
