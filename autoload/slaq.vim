@@ -40,16 +40,27 @@ function! slaq#get(api_name, arg) abort
     return s:H.get('https://slack.com/api/' . a:api_name, a:arg).content
 endfunction
 
-function! slaq#channel_history(channel) abort
+function! slaq#post(api_name, arg) abort
+    let a:arg['token'] = g:slaq_token
+    return s:H.post('https://slack.com/api/' . a:api_name, a:arg).content
+endfunction
+
+function! slaq#channel_history(channel, ...) abort
     if !has_key(s:channles, a:channel)
         throw 'No such channel'
     endif
-    let res = s:J.decode(slaq#get('channels.history', {'channel': s:channles[a:channel].id}))
+    let option = get(a:, 1, {})
+    let option['channel'] = s:channles[a:channel].id
+    let res = s:J.decode(slaq#get('channels.history', option))
     if !res.ok
         throw 'cannot get history'
     endif
     for message in res.messages
-        let message['user'] = has_key(s:users, message['user']) ? s:users[message['user']] : ''
+        if has_key(message, 'user')
+            let message['user'] = has_key(s:users, message['user']) ? s:users[message['user']] : ''
+        else
+            let message['user'] = {'name': ''}
+        endif
     endfor
     return res.messages
 endfunction
@@ -81,15 +92,78 @@ function! slaq#open_channel(channel) abort
     let history = slaq#channel_history(a:channel)
     let bufname = '==Slack: channel(' . a:channel . ')=='
     edit `=bufname`
+    let b:channel_name = a:channel
+    let b:history = copy(history)
     setlocal buftype=nowrite
     setlocal noswapfile
     setlocal bufhidden=wipe
     setlocal nonumber
-    setlocal readonly
-    setlocal nomodifiable
+    setlocal modifiable
     silent %d _
     let display_list = map(history, 's:to_show_history(v:val)')
     call setline(1, display_list)
+    setlocal nomodifiable
+    nnoremap <buffer> r :call slaq#reload_channel()<CR>
+    nnoremap <buffer> i :call slaq#post_to_channel_buffer()<CR>
+endfunction
+
+function! slaq#reload_channel() abort
+    if !exists('b:channel_name') || !exists('b:history')
+        return
+    endif
+    let latest = b:history[0].ts
+    let history = slaq#channel_history(b:channel_name, { 'oldest': latest })
+    let display_list = map(copy(history), 's:to_show_history(v:val)')
+    setlocal modifiable
+    for i in range(0, len(history) - 1)
+        call append(i,display_list[i])
+        call insert(b:history, history[i], i)
+    endfor
+    setlocal nomodifiable
+endfunction
+
+function! slaq#post_to_channel_buffer() abort
+    if !exists('b:channel_name') || !exists('b:history')
+        return
+    endif
+    if !has_key(s:channles, b:channel_name)
+        return
+    endif
+    let channel_name = b:channel_name
+    let channel_id = s:channles[b:channel_name].id
+    3new `='Slack: post('.b:channel_name`
+    silent %d _
+    setlocal buftype=nowrite
+    setlocal noswapfile
+    setlocal nonumber
+    setlocal bufhidden=wipe
+    nnoremap <CR> :<C-u>call slaq#post_to_channel()<CR>
+    let b:channel_id = channel_id
+    let b:channel_name = channel_name
+endfunction
+
+function! slaq#post_to_channel() abort
+    if !exists('b:channel_id') || !exists('b:channel_name')
+        return
+    endif
+    let msg = getline('.')
+    if msg ==# ''
+        return
+    endif
+    let res = s:J.decode(slaq#post('chat.postMessage', {'channel': b:channel_id, 'text': msg, 'as_user': 'true'}))
+    if !res.ok
+        echo 'could not post message'
+        echo res
+        return
+    endif
+    let post_buf_id = bufnr('%')
+    let history_buf_id = bufnr('==Slack: channel(' . b:channel_name . ')==')
+    if history_buf_id == -1
+        return
+    endif
+    execute history_buf_id . 'buffer'
+    call slaq#reload_channel()
+    quit
 endfunction
 
 let &cpo = s:save_cpo
