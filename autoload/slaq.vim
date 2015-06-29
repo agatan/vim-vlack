@@ -3,55 +3,63 @@ scriptencoding utf-8
 let s:save_cpo = &cpo
 set cpo&vim
 
-if !exists('g:slaq_token')
-    throw 'Define your token'
-endif
-
-if !exists('g:slaq_initialized')
-    let g:slaq_initialized = 1
-    let s:V = vital#of('slaq')
-    let s:H = s:V.import('Web.HTTP')
-    let s:J = s:V.import('Web.JSON')
-    let s:channles = {}
-    let res = s:J.decode(slaq#get('channels.list', {}))
-    if !res.ok
-        throw 'cannot get channels list'
-    endif
-    for c in res.channels
-        let s:channles[c.name] = c
-    endfor
-
-    let s:users = {}
-    let res = s:J.decode(slaq#get('users.list', {}))
-    if !res.ok
-        throw 'cannot get users list'
-    endif
-    for u in res.members
-        let s:users[u.id] = u
-    endfor
-
-    if !exists('g:slaq_name_width')
-        let g:slaq_name_width = 10
-    endif
-endif
-
-function! slaq#get(api_name, arg) abort
+function! s:get(api_name, arg) abort
     let a:arg['token'] = g:slaq_token
     return s:H.get('https://slack.com/api/' . a:api_name, a:arg).content
 endfunction
 
-function! slaq#post(api_name, arg) abort
+function! s:post(api_name, arg) abort
     let a:arg['token'] = g:slaq_token
     return s:H.post('https://slack.com/api/' . a:api_name, a:arg).content
 endfunction
 
-function! slaq#channel_history(channel, ...) abort
+function! s:init() abort
+    if exists('s:initialized')
+        return
+    endif
+    let s:initialized = 0
+
+    if !exists('g:slaq_token')
+        throw 'Define your token'
+    endif
+
+    if !exists('g:slaq_initialized')
+        let g:slaq_initialized = 1
+        let s:V = vital#of('slaq')
+        let s:H = s:V.import('Web.HTTP')
+        let s:J = s:V.import('Web.JSON')
+        let s:channles = {}
+        let res = s:J.decode(s:get('channels.list', {}))
+        if !res.ok
+            throw 'cannot get channels list'
+        endif
+        for c in res.channels
+            let s:channles[c.name] = c
+        endfor
+
+        let s:users = {}
+        let res = s:J.decode(s:get('users.list', {}))
+        if !res.ok
+            throw 'cannot get users list'
+        endif
+        for u in res.members
+            let s:users[u.id] = u
+        endfor
+
+        if !exists('g:slaq_name_width')
+            let g:slaq_name_width = 10
+        endif
+    endif
+endfunction
+
+
+function! s:channel_history(channel, ...) abort
     if !has_key(s:channles, a:channel)
         throw 'No such channel'
     endif
     let option = get(a:, 1, {})
     let option['channel'] = s:channles[a:channel].id
-    let res = s:J.decode(slaq#get('channels.history', option))
+    let res = s:J.decode(s:get('channels.history', option))
     if !res.ok
         throw 'cannot get history'
     endif
@@ -89,7 +97,8 @@ function! s:replace_name(message) abort
 endfunction
 
 function! slaq#open_channel(channel) abort
-    let history = slaq#channel_history(a:channel)
+    call s:init()
+    let history = s:channel_history(a:channel)
     let bufname = '==Slack: channel(' . a:channel . ')=='
     edit `=bufname`
     let b:channel_name = a:channel
@@ -112,7 +121,7 @@ function! slaq#reload_channel() abort
         return
     endif
     let latest = b:history[0].ts
-    let history = slaq#channel_history(b:channel_name, { 'oldest': latest })
+    let history = s:channel_history(b:channel_name, { 'oldest': latest })
     let display_list = map(copy(history), 's:to_show_history(v:val)')
     setlocal modifiable
     for i in range(0, len(history) - 1)
@@ -150,7 +159,7 @@ function! slaq#post_to_channel() abort
     if msg ==# ''
         return
     endif
-    let res = s:J.decode(slaq#post('chat.postMessage', {'channel': b:channel_id, 'text': msg, 'as_user': 'true'}))
+    let res = s:J.decode(s:post('chat.postMessage', {'channel': b:channel_id, 'text': msg, 'as_user': 'true'}))
     if !res.ok
         echo 'could not post message'
         echo res
